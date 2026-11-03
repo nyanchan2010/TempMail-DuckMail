@@ -20,13 +20,22 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # NOTE: android-actions/setup-android failed on run #1 (step "Set up Android SDK").
+      # ubuntu-latest already ships an Android SDK, so use it directly instead of
+      # re-installing it. This step never fails the build on its own: if platform 37
+      # is already present, sdkmanager is a no-op.
       - name: Install Android platform 37 and build tools
         run: |
-          yes | sdkmanager "platforms;android-37" "platform-tools" "build-tools;36.0.0" || true
-          sdkmanager --list_installed || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME" || true
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME" -name sdkmanager -type f | head -n 1)"
+          fi
+          echo "sdkmanager=$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" "platforms;android-37" "platform-tools" "build-tools;36.0.0" || true
+          "$SDKMANAGER" --list_installed || true
 
       - name: Make gradlew executable
         run: chmod +x gradlew
