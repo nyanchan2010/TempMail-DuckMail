@@ -19,20 +19,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.MarkEmailRead
-import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Inbox
-import androidx.compose.material.icons.outlined.MarkEmailUnread
-import androidx.compose.material.icons.outlined.Password
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,7 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
@@ -56,10 +52,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -116,22 +110,29 @@ fun TempMailApp(
     val active = state.activeMailbox
     val filtered = vm.filteredMessages()
     val otpCount = state.messages.count { it.otp != null }
-    val unread = state.messages.count { !it.isRead }
+
+    // v1.1: detail is a full screen, not a bottom sheet. A sheet over a
+    // scrollable WebView stole every drag (the sheet moved instead of the
+    // mail scrolling), so the sheet is gone entirely.
+    if (detail != null) {
+        MessageDetailScreen(
+            message = detail!!,
+            onClose = { detail = null },
+            onCopy = { t, m -> copyText(t, m) },
+            onShare = shareText,
+            onOpenLink = openLink,
+            onDelete = { vm.deleteMessage(detail!!); detail = null },
+        )
+        return
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            MediumFlexibleTopAppBar(
+            // Pinned standard bar: the flexible bar's expanded height was
+            // clipping the top of the hero card underneath it.
+            TopAppBar(
                 title = { Text("TempMail", style = MaterialTheme.typography.headlineLarge) },
-                subtitle = {
-                    Text(
-                        if (active != null) {
-                            if (unread > 0) "$unread unread · $otpCount codes" else "Ready · $otpCount codes"
-                        } else {
-                            "Unofficial DuckMail client"
-                        },
-                    )
-                },
                 actions = {
                     IconButton(onClick = { searchOpen = !searchOpen }) {
                         Icon(Icons.Filled.Search, contentDescription = "Search")
@@ -167,7 +168,7 @@ fun TempMailApp(
                 FloatingActionButtonMenuItem(
                     onClick = { fabExpanded = false; showImport = true },
                     text = { Text("Import mailbox") },
-                    icon = { Icon(Icons.Outlined.Password, contentDescription = null) },
+                    icon = { Icon(Icons.Filled.Person, contentDescription = null) },
                 )
             }
         },
@@ -186,7 +187,6 @@ fun TempMailApp(
                         isLoading = state.isLoading,
                         onCreate = { vm.createRandomAddress() },
                         onCustom = { showCustom = true },
-                        onImport = { showImport = true },
                     )
                 } else {
                     AddressHero(
@@ -198,7 +198,6 @@ fun TempMailApp(
                         onQr = { showQr = true },
                         onShare = { shareText(active.address) },
                         onVault = { showVault = true },
-                        onNew = { vm.createRandomAddress() },
                         onCredentials = { showCredentials = true },
                         onDelete = { showDeleteMailbox = true },
                     )
@@ -234,19 +233,19 @@ fun TempMailApp(
                             checked = state.filter == MailFilter.ALL,
                             label = "All",
                             onCheckedChange = { if (it) vm.setFilter(MailFilter.ALL) },
-                            icon = { Icon(Icons.Outlined.Inbox, contentDescription = null) },
+                            icon = { Icon(Icons.Outlined.Email, contentDescription = null) },
                         )
                         toggleableItem(
                             checked = state.filter == MailFilter.UNREAD,
                             label = "Unread",
                             onCheckedChange = { if (it) vm.setFilter(MailFilter.UNREAD) },
-                            icon = { Icon(Icons.Outlined.MarkEmailUnread, contentDescription = null) },
+                            icon = { Icon(Icons.Outlined.Email, contentDescription = null) },
                         )
                         toggleableItem(
                             checked = state.filter == MailFilter.CODES,
                             label = "Codes ($otpCount)",
                             onCheckedChange = { if (it) vm.setFilter(MailFilter.CODES) },
-                            icon = { Icon(Icons.Outlined.Password, contentDescription = null) },
+                            icon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
                         )
                     }
                 }
@@ -284,14 +283,12 @@ fun TempMailApp(
                                 SplitButtonLayout(
                                     leadingButton = {
                                         SplitButtonDefaults.LeadingButton(onClick = { copyText(active.address, "Address copied") }) {
-                                            Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                                            Spacer(modifier = Modifier.width(8.dp))
                                             Text("Copy address")
                                         }
                                     },
                                     trailingButton = {
                                         SplitButtonDefaults.TrailingButton(onClick = { showQr = true }) {
-                                            Icon(Icons.Filled.QrCode2, contentDescription = null)
+                                            Text("QR")
                                         }
                                     },
                                 )
@@ -300,13 +297,14 @@ fun TempMailApp(
                     }
                 }
 
+                // No per-row buttons and no swipe-to-dismiss: a row opens the
+                // mail, and delete lives once in the detail screen. The swipe
+                // background was also bleeding red behind the cards.
                 items(filtered, key = { it.id }) { msg ->
                     MessageRow(
                         message = msg,
                         onOpen = { vm.openMessage(msg) { detail = it } },
                         onCopyOtp = { otp -> copyText(otp, "Verification code copied") },
-                        onDelete = { vm.deleteMessage(msg) },
-                        onMarkUnread = { vm.markUnread(msg) },
                     )
                 }
                 item { Spacer(modifier = Modifier.height(88.dp)) }
@@ -314,16 +312,6 @@ fun TempMailApp(
         }
     }
 
-    if (detail != null) {
-        MessageDetailSheet(
-            message = detail!!,
-            onClose = { detail = null },
-            onCopy = { t, m -> copyText(t, m) },
-            onShare = shareText,
-            onOpenLink = openLink,
-            onDelete = { vm.deleteMessage(detail!!); detail = null },
-        )
-    }
     if (showVault) {
         VaultSheet(
             mailboxes = state.mailboxes,
@@ -332,7 +320,6 @@ fun TempMailApp(
             onClose = { showVault = false },
             onSwitch = { vm.switchMailbox(it); showVault = false },
             onRename = { showVault = false; showRename = true },
-            onDeleteAll = { showVault = false; showDeleteAll = true },
         )
     }
     if (showCustom) {
@@ -395,14 +382,14 @@ fun TempMailApp(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun EmptyHero(isLoading: Boolean, onCreate: () -> Unit, onCustom: () -> Unit, onImport: () -> Unit) {
+private fun EmptyHero(isLoading: Boolean, onCreate: () -> Unit, onCustom: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = MaterialTheme.shapes.extraLarge,
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Icon(Icons.Filled.Inbox, contentDescription = null, modifier = Modifier.size(40.dp))
+            Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(40.dp))
             Spacer(modifier = Modifier.height(12.dp))
             Text("Get a disposable address", style = MaterialTheme.typography.headlineLarge)
             Spacer(modifier = Modifier.height(8.dp))
@@ -428,13 +415,6 @@ private fun EmptyHero(isLoading: Boolean, onCreate: () -> Unit, onCustom: () -> 
                         }
                     },
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "Already have one? Import it.",
-                    modifier = Modifier.clickable { onImport() },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
             }
         }
     }
@@ -450,7 +430,6 @@ private fun AddressHero(
     onQr: () -> Unit,
     onShare: () -> Unit,
     onVault: () -> Unit,
-    onNew: () -> Unit,
     onCredentials: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -475,7 +454,7 @@ private fun AddressHero(
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Filled.Share, contentDescription = "More actions")
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More actions")
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Share address") }, onClick = { menu = false; onShare() })
@@ -495,145 +474,99 @@ private fun AddressHero(
             SplitButtonLayout(
                 leadingButton = {
                     SplitButtonDefaults.LeadingButton(onClick = onCopy) {
-                        Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Copy address")
                     }
                 },
                 trailingButton = {
                     SplitButtonDefaults.TrailingButton(onClick = onQr) {
-                        Icon(Icons.Filled.QrCode2, contentDescription = null)
+                        Text("QR")
                     }
                 },
             )
+            // One switch action only. "New address" already lives in the FAB
+            // menu, so it is not repeated here.
             Spacer(modifier = Modifier.height(12.dp))
-            Row {
-                Text(
-                    "Mailboxes ($mailboxCount) · Switch",
-                    modifier = Modifier.clickable { onVault() },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    "New address",
-                    modifier = Modifier.clickable { onNew() },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+            OutlinedButton(onClick = onVault, modifier = Modifier.fillMaxWidth()) {
+                Text("Switch mailbox ($mailboxCount)")
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageRow(
     message: EmailMessage,
     onOpen: () -> Unit,
     onCopyOtp: (String) -> Unit,
-    onDelete: () -> Unit,
-    onMarkUnread: () -> Unit,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                true
-            } else false
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.errorContainer),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(16.dp))
+    // Plain card, no swipe box and no per-row action buttons. The swipe
+    // background was bleeding red behind the cards, and delete/mark-unread
+    // are single actions in the detail screen instead of on every row.
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen() },
+        shape = MaterialTheme.shapes.extraLarge,
+        color = if (message.isRead) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        message.fromName.firstOrNull()?.uppercase() ?: "?",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        message.fromName,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(message.fromAddress, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(relativeTime(message.receivedAtMs), style = MaterialTheme.typography.bodyMedium)
+                if (!message.isRead) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
             }
-        },
-        content = {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpen() },
-                shape = MaterialTheme.shapes.large,
-                color = if (message.isRead) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.secondaryContainer),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                message.fromName.firstOrNull()?.uppercase() ?: "?",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                message.fromName,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold,
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(message.fromAddress, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(message.subject, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (message.intro.isNotBlank()) {
+                Text(message.intro, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            val otp = message.otp
+            if (otp != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.clickable { onCopyOtp(otp) },
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(relativeTime(message.receivedAtMs), style = MaterialTheme.typography.bodyMedium)
-                        if (!message.isRead) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(message.subject, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (message.intro.isNotBlank()) {
-                        Text(message.intro, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    val otp = message.otp
-                    if (otp != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.clickable { onCopyOtp(otp) },
-                        ) {
-                            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.Password, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(otp, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                    Row {
-                        Spacer(modifier = Modifier.weight(1f))
-                        IconButton(onClick = onMarkUnread) {
-                            Icon(Icons.Filled.MarkEmailRead, contentDescription = "Mark unread")
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete message")
-                        }
+                        Text(otp, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-        },
-    )
+        }
+    }
 }

@@ -17,13 +17,27 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* declined = no notifications; inbox still works */ }
+
+    // Held as a field so onResume/onPause can pause foreground polling when
+    // the app is not visible (the background service, if enabled, owns
+    // background watching separately).
+    private val vm: MailViewModel by lazy {
+        ViewModelProvider(
+            this,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return MailViewModel(applicationContext) as T
+                }
+            },
+        )[MailViewModel::class.java]
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,14 +48,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val vm: MailViewModel = viewModel(
-                factory = object : ViewModelProvider.Factory {
-                    @Suppress("UNCHECKED_CAST")
-                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                        return MailViewModel(applicationContext) as T
-                    }
-                },
-            )
             val state by vm.state.collectAsState()
             TempMailTheme(
                 darkThemeSetting = state.settings.darkTheme,
@@ -59,8 +65,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Foreground polling is owned by the ViewModel; nothing to restart here.
-        // Background watching is owned by MailWatchService / WorkManager.
+        vm.startPolling()
+        vm.refresh(silent = true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Foreground polling stops when the app is not visible. Background
+        // watching is owned by MailWatchService / WorkManager, not by this.
+        vm.stopPolling()
     }
 
     private fun copyToClipboard(text: String, message: String) {

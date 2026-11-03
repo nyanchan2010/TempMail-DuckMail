@@ -145,15 +145,23 @@ class MailViewModel(context: Context) : ViewModel() {
                 val oldIds = _state.value.messages.map { it.id }.toSet()
                 val newOnes = fresh.filter { it.id !in oldIds }
                 messagesByMailbox[mailbox.id] = fresh
-                _state.value = _state.value.copy(
-                    messages = fresh,
-                    isRefreshing = false,
-                    isLoading = false,
-                    isOffline = false,
-                    lastUpdatedMs = System.currentTimeMillis(),
-                    error = null,
-                )
-                persist()
+                // v1.1: if nothing changed, do not rewrite state or disk.
+                // A fresh list object every 3s was recomposing the whole
+                // inbox and re-writing the vault even with zero new mail.
+                val unchanged = fresh.map { it.fingerprint() } == _state.value.messages.map { it.fingerprint() }
+                if (unchanged) {
+                    _state.value = _state.value.copy(isRefreshing = false, isLoading = false, isOffline = false)
+                } else {
+                    _state.value = _state.value.copy(
+                        messages = fresh,
+                        isRefreshing = false,
+                        isLoading = false,
+                        isOffline = false,
+                        lastUpdatedMs = System.currentTimeMillis(),
+                        error = null,
+                    )
+                    persist()
+                }
                 for (m in newOnes) {
                     _newMail.tryEmit(m)
                     m.otp?.let { _newOtp.tryEmit(it) }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,14 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
@@ -50,9 +52,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun MessageDetailSheet(
+fun MessageDetailScreen(
     message: EmailMessage,
     onClose: () -> Unit,
     onCopy: (String, String) -> Unit,
@@ -60,26 +62,57 @@ fun MessageDetailSheet(
     onOpenLink: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
+    // Full screen, not a bottom sheet: a sheet over a scrollable WebView
+    // stole every drag, so scrolling the mail dragged the whole sheet down.
+    // Here the WebView fills the remaining height and scrolls natively.
     var showHtml by remember { mutableStateOf(message.htmlBody.isNotBlank()) }
-    var loadImages by remember { mutableStateOf(false) }
+    var loadImages by remember { mutableStateOf(true) }
     val otp = message.otp
     val link = message.verificationLink
-    ModalBottomSheet(onDismissRequest = onClose) {
+    androidx.activity.compose.BackHandler { onClose() }
+    androidx.compose.material3.Scaffold(
+        topBar = {
+            androidx.compose.material3.TopAppBar(
+                title = { androidx.compose.material3.Text(message.subject, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { onShare("${message.subject}\n\n${message.textBody}") }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share")
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
+                .fillMaxSize()
+                .padding(padding),
         ) {
-            Text(message.subject, style = MaterialTheme.typography.headlineLarge)
-            Spacer(modifier = Modifier.height(6.dp))
-            Text("${message.fromName} <${message.fromAddress}>", style = MaterialTheme.typography.bodyMedium)
-            Text(relativeTime(message.receivedAtMs), style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(16.dp))
+            // Sender + time once. The subject already lives in the top bar,
+            // so it is not repeated as a big headline above the mail.
+            Text(
+                "${message.fromName} <${message.fromAddress}>",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Text(
+                relativeTime(message.receivedAtMs),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             if (otp != null) {
                 androidx.compose.material3.Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 ) {
                     Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -87,42 +120,58 @@ fun MessageDetailSheet(
                         Text(otp, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(onClick = { onCopy(otp, "Verification code copied") }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                            Spacer(modifier = Modifier.padding(4.dp))
-                            Text("Copy code $otp")
+                            Text("Copy code")
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
             if (link != null) {
-                Button(onClick = { onOpenLink(link) }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Filled.OpenInBrowser, contentDescription = null)
-                    Spacer(modifier = Modifier.padding(4.dp))
+                Button(onClick = { onOpenLink(link) }, modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)) {
                     Text("Open verification link")
                 }
                 Text(
-                    "This link was checked: it contains a verification keyword and a security parameter. It opens in your browser — it is never auto-clicked.",
+                    "Checked: verification keyword + security parameter. Opens in your browser, never auto-clicked.",
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
-                Spacer(modifier = Modifier.height(16.dp))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { showHtml = true }) { Text("HTML") }
-                TextButton(onClick = { showHtml = false }) { Text("Text") }
-                Spacer(modifier = Modifier.weight(1f))
-                if (showHtml) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Images", style = MaterialTheme.typography.labelLarge)
-                        Switch(checked = loadImages, onCheckedChange = { loadImages = it })
+            if (message.htmlBody.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    androidx.compose.material3.ButtonGroup(overflowIndicator = {}) {
+                        toggleableItem(
+                            checked = showHtml,
+                            label = "HTML",
+                            onCheckedChange = { if (it) showHtml = true },
+                            icon = {},
+                        )
+                        toggleableItem(
+                            checked = !showHtml,
+                            label = "Text",
+                            onCheckedChange = { if (it) showHtml = false },
+                            icon = {},
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (showHtml) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Images", style = MaterialTheme.typography.labelLarge)
+                            Switch(checked = loadImages, onCheckedChange = { loadImages = it })
+                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
             if (showHtml && message.htmlBody.isNotBlank()) {
                 AndroidView(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(420.dp),
+                        .weight(1f),
                     factory = { ctx ->
                         WebView(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
@@ -130,35 +179,56 @@ fun MessageDetailSheet(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
                             settings.javaScriptEnabled = false
-                            settings.blockNetworkImage = !loadImages
-                            settings.loadsImagesAutomatically = loadImages
+                            settings.domStorageEnabled = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            settings.loadsImagesAutomatically = true
+                            settings.blockNetworkImage = false
+                            settings.blockNetworkLoads = false
                             webViewClient = WebViewClient()
                         }
                     },
                     update = { webView ->
+                        // v1.1 bug fix: the old code only toggled
+                        // blockNetworkImage, but loadsImagesAutomatically
+                        // stayed false from the first load, so images never
+                        // appeared even with the switch on. Both must move.
+                        webView.settings.loadsImagesAutomatically = loadImages
                         webView.settings.blockNetworkImage = !loadImages
-                        webView.loadDataWithBaseURL(null, message.htmlBody, "text/html", "UTF-8", null)
+                        webView.loadDataWithBaseURL(null, injectViewport(message.htmlBody), "text/html", "UTF-8", null)
                     },
                 )
             } else {
-                Text(message.textBody.ifBlank { message.intro.ifBlank { "(Empty message)" } }, style = MaterialTheme.typography.bodyLarge)
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onCopy(message.textBody.ifBlank { message.intro }, "Message copied") }) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                    Text("Copy text")
-                }
-                OutlinedButton(onClick = { onShare("${message.subject}\n\n${message.textBody}") }) {
-                    Icon(Icons.Filled.Share, contentDescription = null)
-                    Text("Share")
-                }
-                OutlinedButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
-                    Text("Delete")
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                ) {
+                    Text(message.textBody.ifBlank { message.intro.ifBlank { "(Empty message)" } }, style = MaterialTheme.typography.bodyLarge)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(onClick = { onCopy(message.textBody.ifBlank { message.intro }, "Message copied") }) {
+                        Text("Copy text")
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
         }
+    }
+}
+
+// Fits wide sender HTML to the screen width: viewport meta + a max-width
+// rule, injected after <head> when one exists, otherwise prepended.
+private fun injectViewport(html: String): String {
+    val meta = "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    val style = "<style>body{margin:0;padding:12px;word-wrap:break-word;overflow-wrap:break-word} img{max-width:100%!important;height:auto!important} table{max-width:100%!important} td{word-wrap:break-word}</style>"
+    val headRegex = Regex("(?i)<head[^>]*>")
+    val m = headRegex.find(html)
+    return if (m != null) {
+        html.substring(0, m.range.last + 1) + meta + style + html.substring(m.range.last + 1)
+    } else {
+        meta + style + html
     }
 }
 
@@ -171,7 +241,6 @@ fun VaultSheet(
     onClose: () -> Unit,
     onSwitch: (Mailbox) -> Unit,
     onRename: () -> Unit,
-    onDeleteAll: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onClose) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -196,10 +265,9 @@ fun VaultSheet(
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onRename) { Text("Rename active") }
-                OutlinedButton(onClick = onDeleteAll) { Text("Delete all") }
-            }
+            // Rename lives here only. Delete-all lives only in Settings,
+            // so neither action is offered in two places.
+            OutlinedButton(onClick = onRename) { Text("Rename active") }
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
